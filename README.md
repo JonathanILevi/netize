@@ -1,2 +1,2 @@
 # netize
-Make a networkable class. (Netize a class...)
+Make a networkable class. (netize a class...)

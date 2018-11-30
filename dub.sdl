@@ -1,0 +1,7 @@
+name "netize"
+description "Make a networkable class. (netize a class...)"
+authors "Jonathan Levi"
+copyright "Copyright © 2018, Jonathan Levi"
+license "BSL-1.0"
+dependency "xserial" version="~>1.1"
+targetPath "bin"
