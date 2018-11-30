@@ -10,6 +10,8 @@ enum SplitArray	;
 struct Sync {
 	ubyte	valueId	;
 }
+enum Changer	;
+enum Change	;
 
 template Owner(bool isOwner) {
 	static if (isOwner)
@@ -80,7 +82,7 @@ template __Ntz() {
 				string idString = to!string(id);
 				if (hasWrite[id]) {
 					toMix ~= "
-						newMsgs(networkClassUpdateSync!"~idString~");
+						newMsgs(netizeUpdateSync!"~idString~");
 					";
 				}
 			}
@@ -133,6 +135,21 @@ template __Ntz() {
 								_"~name~" = n;
 							}
 						";
+						static if(hasUDA!(vars[i],Changer)) {
+							toMix ~= "
+								@property ref auto "~name~"_changer() {
+									_"~idString~"_changed = true;
+									return _"~name~";
+								}
+							";
+						}
+						static if(hasUDA!(vars[i],Change)) {
+							toMix ~= "
+								void "~name~"_change() {
+									_"~idString~"_changed = true;
+								}
+							";
+						}
 					}
 					static if (hasUDA!(vars[i],Read) || !hasUDA!(vars[i],Write)) { // has read (or neither causes default read and write)
 						hasRead[id] = true;
@@ -145,11 +162,9 @@ template __Ntz() {
 					
 				if (hasWrite[id]) {
 					toMix ~= "bool _"~idString~"_changed = false;";
-				}
-				if (hasRead[id]) {
 					// updater
 					toMix ~= "
-						ubyte[][] networkClassUpdateSync(ubyte id:"~idString~")() {
+						ubyte[][] netizeUpdateSync(ubyte id:"~idString~")() {
 							ubyte[][] msgs = [];
 							if (_"~idString~"_changed) {
 								import xserial;
@@ -163,7 +178,7 @@ template __Ntz() {
 			}
 		}}
 		toMix~="
-			ubyte[][] networkClassUpdate(ubyte[][] inMsgs, void delegate(string) error_callback=null) {
+			ubyte[][] netizeUpdate(ubyte[][] inMsgs, void delegate(string) error_callback=null) {
 				void error(string msg) {
 					if (error_callback is null)
 						_Ntz.defaultError	(msg);
@@ -243,7 +258,7 @@ unittest {
 			test.a = 5;
 			assert(test.a==5);
 			assert(test._0_changed);
-			test.networkClassUpdate([],(a){});
+			test.netizeUpdate([],(a){});
 			assert(!test._0_changed);
 			assert(test.a==5);
 		}
@@ -253,14 +268,14 @@ unittest {
 			test.a = 5;
 			assert(test.a==5);
 			assert(test._0_changed && !test._1_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed && !test._1_changed);
 			assert(test.a==5);
 			
 			test.b = [1,2];
 			assert(test.b==[1,2]);
 			assert(!test._0_changed && test._1_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed && !test._1_changed);
 			assert(test.b==[1,2]);
 			assert(test.a==5);
@@ -270,7 +285,7 @@ unittest {
 			assert(test.a==8);
 			assert(test.b==[3,5]);
 			assert(test._0_changed && test._1_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed && !test._1_changed);
 			assert(test.a==8);
 			assert(test.b==[3,5]);
@@ -281,14 +296,14 @@ unittest {
 			test.a = 5;
 			assert(test.a==5);
 			assert(test._0_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed);
 			assert(test.a==5);
 			
 			test.b = [1,2];
 			assert(test.b==[1,2]);
 			assert(test._0_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed);
 			assert(test.b==[1,2]);
 			assert(test.a==5);
@@ -298,7 +313,7 @@ unittest {
 			assert(test.a==8);
 			assert(test.b==[3,5]);
 			assert(test._0_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed);
 			assert(test.a==8);
 			assert(test.b==[3,5]);
@@ -312,7 +327,7 @@ unittest {
 			assert(test.b==[2,3,4]);
 			assert(test.c==5);
 			assert(test._0_changed && test._1_changed);
-			test.networkClassUpdate([],(_){});
+			test.netizeUpdate([],(_){});
 			assert(!test._0_changed && !test._1_changed);
 			assert(test.a==1);
 			assert(test.b==[2,3,4]);
@@ -324,8 +339,8 @@ unittest {
 		TestA testa = new TestA;
 		TestA testb = new TestA;
 		testa.a = 2;
-		auto msgs = testa.networkClassUpdate([],(a){assert(0);});
-		assert(testb.networkClassUpdate(msgs).length==0);
+		auto msgs = testa.netizeUpdate([],(a){assert(0);});
+		assert(testb.netizeUpdate(msgs).length==0);
 		assert(testb.a == 2);
 	}
 	// Bad msg data
@@ -335,25 +350,25 @@ unittest {
 			// nonexistent `Sync`
 			{
 				bool failed = false;
-				test.networkClassUpdate([[100]],(msg){failed=true;});
+				test.netizeUpdate([[100]],(msg){failed=true;});
 				assert(failed);
 			}
 			// no data for 0
 			{
 				bool failed = false;
-				test.networkClassUpdate([[0]],(msg){failed=true;});
+				test.netizeUpdate([[0]],(msg){failed=true;});
 				assert(failed);
 			}
 			// no data at all
 			{
 				bool failed = false;
-				test.networkClassUpdate([[]],(msg){failed=true;});
+				test.netizeUpdate([[]],(msg){failed=true;});
 				assert(failed);
 			}
 			// no enough data
 			{
 				bool failed = false;
-				test.networkClassUpdate([[0,1,2,5]],(msg){failed=true;});
+				test.netizeUpdate([[0,1,2,5]],(msg){failed=true;});
 				assert(failed);
 			}
 		}
@@ -362,37 +377,175 @@ unittest {
 			// no enough data; array length to long
 			{
 				bool failed = false;
-				test.networkClassUpdate([[0,1,0,0,0,2,2,5,1,2]],(msg){failed=true;});
+				test.netizeUpdate([[0,1,0,0,0,2,2,5,1,2]],(msg){failed=true;});
 				assert(failed);
 			}
 			// no enough data in of array value
 			{
 				bool failed = false;
-				test.networkClassUpdate([[0,1,0,0,0,1,2,5]],(msg){failed=true;});
+				test.netizeUpdate([[0,1,0,0,0,1,2,5]],(msg){failed=true;});
 				assert(failed);
 			}
 			// not implemented
 			////// msg fully ignored on invalid
 			////{
 			////	bool failed = false;
-			////	test.networkClassUpdate([[0,1,0,0,0,0]],(msg){assert(0);});
+			////	test.netizeUpdate([[0,1,0,0,0,0]],(msg){assert(0);});
 			////	assert(test.a==1);//double check set right
-			////	test.networkClassUpdate([[0,5,5,0,0,1,2,5]],(msg){failed=true;});
+			////	test.netizeUpdate([[0,5,5,0,0,1,2,5]],(msg){failed=true;});
 			////	assert(failed);
 			////	assert(test.a==1);
 			////}
 			////// msg to long
 			////{
 			////	bool failed = false;
-			////	test.networkClassUpdate([[0,5,5,0,0,1,2,5,5,4,4,4,3,1,2,2,3]],(msg){failed=true;});
+			////	test.netizeUpdate([[0,5,5,0,0,1,2,5,5,4,4,4,3,1,2,2,3]],(msg){failed=true;});
 			////	assert(failed);
 			////}
 		}
 	}
-}
-
+}			
+// Read and Write
 unittest {
+	class TestAA {
+		@Sync(0) @Read int _a;
+		@Sync(1) @Write int _b;
+		mixin Netize;
+	}
+	class TestAB {
+		@Sync(0) @Write int _a;
+		@Sync(1) @Read int _b;
+		mixin Netize;
+	}
+	class TestB(bool who) {
+		@Sync(0) @Owner!(!who) int _a;
+		@Sync(1) @Owner!(who) int _b;
+		mixin Netize;
+	}
+	{
+		static foreach(i;0..2) {{
+			static if(i==0) {
+				auto testa = new TestAA;
+				auto testb = new TestAB;
+			}
+			else static if(i==1){
+				auto testa = new TestB!true;
+				auto testb = new TestB!false;
+			}
+			if (__traits(compiles, testa.a=5))
+				assert(0);
+			if (!__traits(compiles, testb.a=5))
+				assert(0);
+			if (!__traits(compiles, testa.b=5))
+				assert(0);
+			if (__traits(compiles, testb.b=5))
+				assert(0);
+			
+			assert(testa.a==0&&testb.a==0&&testa.b==0&&testb.b==0);
+			testa.b = 2;
+			assert(testa.a==0&&testb.a==0&&testa.b==2&&testb.b==0);
+			auto msgs = testa.netizeUpdate([],(a){assert(0);});
+			assert(testb.netizeUpdate(msgs).length==0);
+			assert(testa.a==0&&testb.a==0&&testa.b==2&&testb.b==2);
+			testb.a = 4;
+			assert(testa.a==0&&testb.a==4&&testa.b==2&&testb.b==2);
+			msgs = testb.netizeUpdate([],(a){assert(0);});
+			assert(testa.netizeUpdate(msgs).length==0);
+			assert(testa.a==4&&testb.a==4&&testa.b==2&&testb.b==2);
+		}}
+	}
 }
+// Change and Changer
+unittest {
+	class TestA {
+		@Change @Sync(0) int _a;
+		mixin Netize;
+	}
+	class TestB {
+		@Changer @Sync(0) int _a;
+		mixin Netize;
+	}
+	class TestC {
+		@Change @Changer @Sync(0) int _a;
+		mixin Netize;
+	}
+	{
+		auto testa = new TestA;
+		auto testb = new TestB;
+		auto testc = new TestC;
+		
+		assert(!testa._0_changed);
+		testa.a_change;
+		assert(testa._0_changed);
+		testa.netizeUpdate([],(a){assert(0);});
+		assert(!testa._0_changed);
+		
+		assert(!testc._0_changed);
+		testc.a_change;
+		assert(testc._0_changed);
+		testc.netizeUpdate([],(a){assert(0);});
+		assert(!testc._0_changed);
+		
+		
+		assert(!testb._0_changed);
+		testb.a_changer = 1;
+		assert(testb._0_changed);
+		assert(testb.netizeUpdate([],(a){assert(0);})==[[0,1,0,0,0]]);
+		assert(!testb._0_changed);
+		
+		assert(!testc._0_changed);
+		testc.a_changer = 2;
+		assert(testc._0_changed);
+		assert(testc.netizeUpdate([],(a){assert(0);})==[[0,2,0,0,0]]);
+		assert(!testc._0_changed);
+	}
+	class TestD {
+		@Changer @Change @Sync(0) int[] _a;
+		mixin Netize;
+	}
+	{
+		auto testa = new TestD;
+		
+		assert(!__traits(compiles,testa.a~=1));
+		
+		assert(!testa._0_changed);
+		testa.a_changer ~= 1;
+		assert(testa._0_changed);
+		assert(testa.netizeUpdate([],(a){assert(0);})==[[0,1,1,0,0,0]]);
+		assert(!testa._0_changed);
+		
+		assert(!__traits(compiles,mixin("testa.a[0]=1")));
+		
+		testa.a_changer[0] = 2;
+		assert(testa._0_changed);
+		assert(testa.netizeUpdate([],(a){assert(0);})==[[0,1,2,0,0,0]]);
+		assert(!testa._0_changed);
+		
+		
+		int[] a = [1,2];
+		
+		testa.a = a;
+		assert(testa._0_changed);
+		assert(testa.netizeUpdate([],(a){assert(0);})==[[0,2,1,0,0,0,2,0,0,0]]);
+		assert(!testa._0_changed);
+		
+		a[1] = 4;
+		assert(!testa._0_changed);
+		testa.a_change;
+		assert(testa._0_changed);
+		assert(testa.netizeUpdate([],(a){assert(0);})==[[0,2,1,0,0,0,4,0,0,0]]);
+		assert(!testa._0_changed);
+	}
+}
+////// Array with objects
+////unittest {
+////	class Sub {
+////		@Sync(0) int a;
+////	}
+////	class TestA {
+////		@Sync(0) Sub[]
+////	}
+////}
 
 ////mixin template NetworkVar() {
 ////	////mixin(_NV.getMixin!(typeof(this)));
